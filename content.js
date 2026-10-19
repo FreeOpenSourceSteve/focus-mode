@@ -40,6 +40,8 @@
         '[data-_pendo-image-1]',
         '.content-question',
         'button[data-layout="badgeResourceCenter"]',
+        '.component[data-component-type="video"]',
+        '.component[data-component-type="biodigital"]',
     ];
 
     var observer = null;
