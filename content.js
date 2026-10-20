@@ -22,7 +22,10 @@
     const HIDE_CLASS  = 'ati-hidden';
     const STORAGE_KEY = 'ati_focus_mode_active';
     const BADGE_ID    = 'ati-focus-badge';
+    const HEADING_ID  = 'ati-focus-course-title';
     const IS_TOP      = window === window.top;
+    const BIO_SELECTOR = '.component[data-component-type="biodigital"]';
+    const ACCORDION_SELECTOR = '.component[data-component-type="accordion"]';
 
     // Selectors applied directly to matched elements
     const SELECTORS = [
@@ -41,10 +44,14 @@
         '.content-question',
         'button[data-layout="badgeResourceCenter"]',
         '.component[data-component-type="video"]',
-        '.component[data-component-type="biodigital"]',
+        BIO_SELECTOR,
     ];
-
+    
     var observer = null;
+    var focusActive = false;
+    var sidebarObserver = null;
+    var duplicateArticleHeading = null;
+    var hiddenVisualizationAccordions = new WeakSet();
 
     /* ── State (top frame only) ── */
     function isActive() {
@@ -61,11 +68,180 @@
                 el.classList.add(HIDE_CLASS);
             });
         });
+        updateVisualizationAccordions([document]);
     }
 
     function showAll() {
         document.querySelectorAll('.' + HIDE_CLASS).forEach(function (el) {
             el.classList.remove(HIDE_CLASS);
+        });
+        hiddenVisualizationAccordions = new WeakSet();
+    }
+
+    /* Hide only BioDigital instructions, never a generic neighboring accordion. */
+    function isVisualizationAccordion(component) {
+        var previous = component.previousElementSibling;
+        var next = component.nextElementSibling;
+        if (!(previous && previous.matches(BIO_SELECTOR)) &&
+            !(next && next.matches(BIO_SELECTOR))) return false;
+
+        // A multi-section wrapper must contain ONLY matching instructions.
+        // Read header titles, not body text; require a real linked panel.
+        var buttons = Array.from(component.querySelectorAll('.btn.action-bar'));
+        return buttons.length > 0 && buttons.every(function (button) {
+            if (button.closest('.component') !== component) return false;
+            var title = button.querySelector('.title');
+            var text = title ? normalizeTitle(title.textContent) : '';
+            if (!text.startsWith('Explore') || !text.includes('3D visualization')) return false;
+            var panelId = button.getAttribute('aria-controls');
+            var panel = panelId && component.ownerDocument.getElementById(panelId);
+            return !!panel && panel.matches('.collapse') &&
+                panel.closest('.component') === component &&
+                button.getAttribute('data-target') === '#' + panelId;
+        });
+    }
+
+    function updateVisualizationAccordions(roots) {
+        var candidates = new Set();
+        function addComponent(component) {
+            if (!component) return;
+            if (component.matches(ACCORDION_SELECTOR)) candidates.add(component);
+            // Inspect both neighbors, including when BioDigital renders later.
+            [component.previousElementSibling, component.nextElementSibling].forEach(function (neighbor) {
+                if (neighbor && neighbor.matches(ACCORDION_SELECTOR)) candidates.add(neighbor);
+            });
+        }
+        roots.forEach(function (root) {
+            if (!root) return;
+            if (root.nodeType === 1) addComponent(root.closest('.component'));
+            if (root.querySelectorAll) {
+                root.querySelectorAll(ACCORDION_SELECTOR + ', ' + BIO_SELECTOR).forEach(addComponent);
+            }
+        });
+        candidates.forEach(function (component) {
+            if (isVisualizationAccordion(component)) {
+                component.classList.add(HIDE_CLASS);
+                hiddenVisualizationAccordions.add(component);
+            } else if (hiddenVisualizationAccordions.has(component)) {
+                component.classList.remove(HIDE_CLASS);
+                hiddenVisualizationAccordions.delete(component);
+            }
+        });
+    }
+
+    /* ── Article heading: copy text, leaving ATI's title intact ── */
+    function normalizeTitle(text) {
+        return text.replace(/\s+/g, ' ').trim();
+    }
+
+    function getCourseTitle(source) {
+        if (!source) return '';
+        function read(node) {
+            if (node.nodeType === 3) return node.nodeValue;
+            if (node.nodeType !== 1) return '';
+            // ATI can include desktop/mobile or accessible copies of a label.
+            // Ignore hidden descendants, but not the source itself: its toolbar
+            // is intentionally hidden by Focus Mode.
+            if (node !== source && (node.hidden ||
+                node.matches('script, style') || getComputedStyle(node).display === 'none')) return '';
+            var parts = Array.from(node.childNodes).map(function (child) {
+                return { text: read(child), element: child.nodeType === 1 };
+            });
+            var labels = parts.filter(function (part) { return normalizeTitle(part.text); });
+            // Collapse equivalent sibling ELEMENT labels only. Do not rewrite
+            // repeated words in a single title, e.g. "Very Very Important".
+            if (labels.length > 1 && labels.every(function (part) {
+                return part.element && normalizeTitle(part.text) === normalizeTitle(labels[0].text);
+            })) return labels[0].text;
+            return parts.map(function (part) { return part.text; }).join('');
+        }
+        return normalizeTitle(read(source));
+    }
+
+    function restoreArticleHeading() {
+        if (duplicateArticleHeading) {
+            duplicateArticleHeading.classList.remove(HIDE_CLASS);
+            duplicateArticleHeading = null;
+        }
+    }
+
+    function findLeadingArticleHeading(firstComponent, title) {
+        var selector = 'h1, h2, h3, h4, h5, h6';
+        var previous = firstComponent.previousElementSibling;
+        if (previous && previous.id === HEADING_ID) previous = previous.previousElementSibling;
+        var containers = previous ? [previous, firstComponent] : [firstComponent];
+        for (var i = 0; i < containers.length; i++) {
+            var container = containers[i];
+            var candidate = container.matches(selector) ? container : container.querySelector(selector);
+            if (!candidate || getCourseTitle(candidate) !== title) continue;
+            // Only suppress an exact matching LEADING title. A later section
+            // heading or other article text must remain visible.
+            var preceding = document.createRange();
+            preceding.selectNodeContents(container);
+            preceding.setEndBefore(candidate === container ? container.firstChild : candidate);
+            if (normalizeTitle(preceding.toString())) continue;
+            var hidden = candidate.closest('.' + HIDE_CLASS + ', [hidden]');
+            if (hidden && hidden !== duplicateArticleHeading) continue;
+            return candidate;
+        }
+        return null;
+    }
+
+    function removeCourseHeading() {
+        var heading = document.getElementById(HEADING_ID);
+        if (heading) heading.remove();
+        restoreArticleHeading();
+    }
+
+    function addCourseHeading() {
+        if (!focusActive) return;
+        removeCourseHeading();
+        // The content script already runs inside the ATI reader iframe.
+        // Read its title locally; cross-origin document access is unnecessary.
+        var source = document.querySelector('.course-title');
+        var title = getCourseTitle(source);
+        var firstComponent = document.querySelector('.component[data-component-type]');
+        if (!title || !firstComponent) return;
+
+        var heading = document.createElement('h1');
+        heading.id = HEADING_ID;
+        heading.textContent = title;
+        duplicateArticleHeading = findLeadingArticleHeading(firstComponent, title);
+        if (duplicateArticleHeading) duplicateArticleHeading.classList.add(HIDE_CLASS);
+        firstComponent.parentNode.insertBefore(heading, firstComponent);
+    }
+
+    /* ── Sidebar: one native state change per Focus Mode transition ── */
+    function switchSidebar(open) {
+        if (window.location.hostname !== 'lms.atitesting.com') return;
+        if (sidebarObserver) {
+            sidebarObserver.disconnect();
+            sidebarObserver = null;
+        }
+
+        function applyWhenReady() {
+            var sidebar = document.querySelector('mat-sidenav.lms-sidenav');
+            if (!sidebar) return false;
+            var isOpen = sidebar.classList.contains('mat-drawer-opened');
+            var button = document.querySelector('.blue-header button.menu-button');
+            if (isOpen !== open && (!button || button.disabled)) return false;
+
+            // Stop waiting BEFORE clicking: later user actions must stay free.
+            if (sidebarObserver) {
+                sidebarObserver.disconnect();
+                sidebarObserver = null;
+            }
+            if (isOpen !== open) button.click();
+            return true;
+        }
+
+        if (applyWhenReady()) return;
+        // Angular may not have rendered the controls when a saved ON state
+        // is restored. Wait only until this one requested action is possible.
+        sidebarObserver = new MutationObserver(applyWhenReady);
+        sidebarObserver.observe(document.documentElement, {
+            childList: true, subtree: true, attributes: true,
+            attributeFilter: ['class', 'disabled']
         });
     }
 
@@ -146,9 +322,25 @@
     function startObserver() {
         if (observer) return;
         observer = new MutationObserver(function (mutations) {
+            var visualizationRoots = new Set();
             mutations.forEach(function (mutation) {
+                // Recheck locally when Angular fills a header/panel or changes
+                // sibling order. Attribute/characterData observation is unnecessary.
+                var component = mutation.target.nodeType === 1 && mutation.target.closest('.component');
+                if (component) visualizationRoots.add(component);
+                [mutation.previousSibling, mutation.nextSibling].forEach(function (sibling) {
+                    // Angular comments/whitespace do not break element adjacency.
+                    if (!sibling) return;
+                    var previous = sibling;
+                    var next = sibling;
+                    while (previous && previous.nodeType !== 1) previous = previous.previousSibling;
+                    while (next && next.nodeType !== 1) next = next.nextSibling;
+                    if (previous) visualizationRoots.add(previous);
+                    if (next) visualizationRoots.add(next);
+                });
                 mutation.addedNodes.forEach(function (node) {
                     if (node.nodeType !== 1) return;
+                    visualizationRoots.add(node);
 
                     // Hide targeted UI elements
                     SELECTORS.forEach(function (sel) {
@@ -171,6 +363,7 @@
                     }
                 });
             });
+            updateVisualizationAccordions(visualizationRoots);
         });
         observer.observe(document.documentElement, { childList: true, subtree: true });
     }
@@ -184,16 +377,27 @@
 
     /* ── Apply focus mode in this frame ── */
     function applyFocusMode(active) {
+        var changed = focusActive !== active;
+        focusActive = active;
         if (active) {
             hideAll();
             expandAccordions();
             lockAccordions();
+            if (changed) addCourseHeading();
             startObserver();
         } else {
             stopObserver();
             showAll();
             unlockAccordions();
             collapseAccordions();
+            removeCourseHeading();
+        }
+        // The LMS owns the navigation; reader-frame state messages never
+        // toggle it again. Repeated state replies are also harmless.
+        if (IS_TOP && changed) {
+            switchSidebar(!active);
+            // Let the independent filename module read the current page once.
+            if (active) document.dispatchEvent(new Event('ati-focus-mode-on'));
         }
         if (IS_TOP) {
             updateBadge(active);
