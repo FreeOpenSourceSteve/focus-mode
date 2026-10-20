@@ -18,6 +18,19 @@
     pointer-events: none !important;
 }
 
+/* A normal-flow heading inside the article, only created in Focus Mode. */
+#ati-focus-course-title {
+    display: block;
+    margin: 0 0 1rem;
+    padding: 0;
+    color: inherit;
+    font-family: inherit;
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1.2;
+    overflow-wrap: anywhere;
+}
+
 /* ============================================================
    Toggle badge — injected by content.js
    ============================================================ */

@@ -8,6 +8,10 @@ A lightweight Chrome extension for the ATI study platform that hides distracting
 
 **Keyboard Shortcut**: Press **Option + H (⌥H)** from anywhere on the page — works whether your focus is in the main page or the reading iframe.
 
+**Article Heading**: When Focus Mode turns on, the text of `.course-title` is copied once into an H1 immediately before the first ATI article component (`.component[data-component-type]`) in the reader document. The heading is removed when Focus Mode turns off. The original title stays intact. This uses the content script already running inside the reader iframe; the frame messaging protocol is unchanged.
+
+**Sidebar Switch**: Turning Focus Mode on closes the left navigation if open. Turning it off opens the navigation if closed. The extension uses ATI's menu button once per transition; it does not lock the sidebar or override later manual changes.
+
 **Persistent State**: Focus mode stays on as you navigate between pages within the same session.
 
 **Zero Interference**: Nothing is stopped, broken, or modified on the backend. Only the visual display is affected. The timer still runs; you just can't see it.
@@ -16,6 +20,9 @@ A lightweight Chrome extension for the ATI study platform that hides distracting
 
 ### What Gets Hidden in Focus Mode
 
+- In-text quiz questions
+- Embedded Videos
+- Embedded Interactive Components aka Biodigital Elements and related instruction accordion
 - Top white header (ATI logo, book title, AI search, Close button)
 - Blue sub-header (hamburger menu, module title)
 - Main navigation bar (course title, Search, My Annotations, Settings & Help)
