@@ -1,6 +1,6 @@
-## ATI Focus Mode
+## Focus Mode
 
-A lightweight Chrome extension for the ATI study platform that hides distracting UI elements so you can focus on the content. Designed to reduce timer anxiety and visual clutter during study sessions.
+A lightweight Chrome extension for the study platform that hides distracting UI elements so you can focus on the content. Designed to reduce timer anxiety and visual clutter during study sessions.
 
 ### Features
 
