@@ -41,12 +41,58 @@
         '.btn-back-to-top',
         '._pendo-badge-image',
         '[data-_pendo-image-1]',
-        '.content-question',
         'button[data-layout="badgeResourceCenter"]',
-        '.component[data-component-type="video"]',
-        BIO_SELECTOR,
     ];
     
+    // Separate ownership prevents one preference from restoring fixed targets.
+    const TARGETS = {
+        hideVideos: { selector: '.component[data-component-type="video"]', hideClass: 'ati-hidden-video' },
+        hideVisualizations: { selector: BIO_SELECTOR, hideClass: 'ati-hidden-visualization' },
+        hidePracticeQuestions: { selector: '.content-question', hideClass: 'ati-hidden-question' }
+    };
+    const HIDDEN_SELECTOR = '.' + HIDE_CLASS + ', ' + Object.keys(TARGETS).map(function (key) {
+        return '.' + TARGETS[key].hideClass;
+    }).join(', ');
+    var targetPreferences = { hideVideos: true, hideVisualizations: true, hidePracticeQuestions: true };
+    var preferencesReady = false;
+    var pendingFocusActive = null;
+
+    // Browser-internal storage only: preferences never pass through ATI messages.
+    function loadTargetPreferences() {
+        var initialReadFinished = false;
+        var earlyChanges = {};
+        chrome.storage.onChanged.addListener(function (changes, area) {
+            if (area !== 'local') return;
+            Object.keys(TARGETS).forEach(function (key) {
+                if (!Object.prototype.hasOwnProperty.call(changes, key)) return;
+                var value = changes[key].newValue;
+                targetPreferences[key] = typeof value === 'boolean' ? value : true;
+                if (!initialReadFinished) earlyChanges[key] = targetPreferences[key];
+                if (focusActive) {
+                    applyTargetPreference(key, document);
+                    if (key === 'hideVisualizations') updateVisualizationAccordions([document]);
+                }
+            });
+        });
+        return chrome.storage.local.get(targetPreferences).then(function (saved) {
+            Object.keys(TARGETS).forEach(function (key) {
+                targetPreferences[key] = Object.prototype.hasOwnProperty.call(earlyChanges, key) ?
+                    earlyChanges[key] : (typeof saved[key] === 'boolean' ? saved[key] : true);
+            });
+        }).catch(function (error) {
+            console.warn('[ATI Focus Mode] Could not load target preferences; using defaults.', error);
+        }).then(function () { initialReadFinished = true; });
+    }
+
+    function applyTargetPreference(key, root) {
+        var target = TARGETS[key];
+        var hidden = focusActive && targetPreferences[key];
+        if (root.matches && root.matches(target.selector)) root.classList.toggle(target.hideClass, hidden);
+        root.querySelectorAll(target.selector).forEach(function (element) {
+            element.classList.toggle(target.hideClass, hidden);
+        });
+    }
+
     var observer = null;
     var focusActive = false;
     var sidebarObserver = null;
@@ -68,12 +114,14 @@
                 el.classList.add(HIDE_CLASS);
             });
         });
+        Object.keys(TARGETS).forEach(function (key) { applyTargetPreference(key, document); });
         updateVisualizationAccordions([document]);
     }
 
     function showAll() {
-        document.querySelectorAll('.' + HIDE_CLASS).forEach(function (el) {
+        document.querySelectorAll(HIDDEN_SELECTOR).forEach(function (el) {
             el.classList.remove(HIDE_CLASS);
+            Object.keys(TARGETS).forEach(function (key) { el.classList.remove(TARGETS[key].hideClass); });
         });
         hiddenVisualizationAccordions = new WeakSet();
     }
@@ -102,6 +150,14 @@
     }
 
     function updateVisualizationAccordions(roots) {
+        var hideClass = TARGETS.hideVisualizations.hideClass;
+        if (!focusActive || !targetPreferences.hideVisualizations) {
+            document.querySelectorAll(ACCORDION_SELECTOR + '.' + hideClass).forEach(function (component) {
+                component.classList.remove(hideClass);
+            });
+            hiddenVisualizationAccordions = new WeakSet();
+            return;
+        }
         var candidates = new Set();
         function addComponent(component) {
             if (!component) return;
@@ -120,10 +176,10 @@
         });
         candidates.forEach(function (component) {
             if (isVisualizationAccordion(component)) {
-                component.classList.add(HIDE_CLASS);
+                component.classList.add(hideClass);
                 hiddenVisualizationAccordions.add(component);
             } else if (hiddenVisualizationAccordions.has(component)) {
-                component.classList.remove(HIDE_CLASS);
+                component.classList.remove(hideClass);
                 hiddenVisualizationAccordions.delete(component);
             }
         });
@@ -180,7 +236,7 @@
             preceding.selectNodeContents(container);
             preceding.setEndBefore(candidate === container ? container.firstChild : candidate);
             if (normalizeTitle(preceding.toString())) continue;
-            var hidden = candidate.closest('.' + HIDE_CLASS + ', [hidden]');
+            var hidden = candidate.closest(HIDDEN_SELECTOR + ', [hidden]');
             if (hidden && hidden !== duplicateArticleHeading) continue;
             return candidate;
         }
@@ -354,6 +410,8 @@
                         }
                     });
 
+                    Object.keys(TARGETS).forEach(function (key) { applyTargetPreference(key, node); });
+
                     // Expand any accordion panels in the new node
                     if (node.querySelectorAll) {
                         if (node.querySelector('.collapse')) {
@@ -377,6 +435,11 @@
 
     /* ── Apply focus mode in this frame ── */
     function applyFocusMode(active) {
+        // Commands received during the asynchronous read use saved preferences.
+        if (!preferencesReady) {
+            pendingFocusActive = active;
+            return;
+        }
         var changed = focusActive !== active;
         focusActive = active;
         if (active) {
@@ -407,7 +470,7 @@
     }
 
     function toggleFocusMode() {
-        applyFocusMode(!isActive());
+        applyFocusMode(!(pendingFocusActive === null ? isActive() : pendingFocusActive));
     }
 
     /* ── Cross-frame messaging ── */
@@ -427,7 +490,7 @@
             if (e.data.atiQuery === 'getState' && e.source) {
                 try {
                     e.source.postMessage(
-                        { atiAction: isActive() ? 'focusOn' : 'focusOff' },
+                        { atiAction: (pendingFocusActive === null ? isActive() : pendingFocusActive) ? 'focusOn' : 'focusOff' },
                         '*'
                     );
                 } catch (err) {}
@@ -494,9 +557,6 @@
             createBadge();
             bindShortcut();
             listenForFrameQueries();
-            if (isActive()) {
-                applyFocusMode(true);
-            }
             console.log('[ATI Focus Mode] Ready. Press Option+H (⌥H) or click the badge.');
         } else {
             // Iframe: listen for toggle commands, bind shortcut to message parent,
@@ -505,6 +565,16 @@
             bindIframeShortcut();
             window.parent.postMessage({ atiQuery: 'getState' }, '*');
         }
+        loadTargetPreferences().then(function () {
+            preferencesReady = true;
+            if (pendingFocusActive !== null) {
+                var active = pendingFocusActive;
+                pendingFocusActive = null;
+                applyFocusMode(active);
+            } else if (IS_TOP && isActive()) {
+                applyFocusMode(true);
+            }
+        });
     }
 
     if (document.readyState === 'loading') {
