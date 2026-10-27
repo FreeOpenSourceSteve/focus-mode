@@ -1,5 +1,5 @@
 /* ============================================================
-   ATI Time Hider — styles.css
+   Focus Mode — styles.css
    ============================================================ */
 
 /* Always hidden — timer label, even when Focus Mode is off. Nobody is allowed the timer. */
@@ -11,7 +11,10 @@
    Focus mode hide class. (Overkill but I take no chances)
    content.js applies this directly to each matched element.
 */
-.ati-hidden {
+.ati-hidden,
+.ati-hidden-video,
+.ati-hidden-visualization,
+.ati-hidden-question {
     display: none !important;
     visibility: hidden !important;
     opacity: 0 !important;
