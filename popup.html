@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Focus Mode targets</title>
+    <style>
+        body { margin: 0; padding: 8px; width: 270px; font: 14px system-ui, sans-serif; color: #222; background: #fff; }
+        button { display: flex; justify-content: space-between; align-items: center; gap: 16px; width: 100%; padding: 12px 10px; border: 0; border-radius: 4px; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+        button:hover { background: #eef5f6; }
+        button:focus-visible { outline: 2px solid #2e8094; outline-offset: -2px; }
+        button:disabled { cursor: wait; opacity: .6; }
+        .state { color: #246879; font-size: 12px; font-weight: 600; }
+    </style>
+    <script src="popup.js" defer></script>
+</head>
+<body>
+    <button type="button" data-key="hideVideos" aria-pressed="true" disabled><span>Video</span><span class="state">[HIDDEN]</span></button>
+    <button type="button" data-key="hideVisualizations" aria-pressed="true" disabled><span>3D Visualizations</span><span class="state">[HIDDEN]</span></button>
+    <button type="button" data-key="hidePracticeQuestions" aria-pressed="true" disabled><span>Practice Questions</span><span class="state">[HIDDEN]</span></button>
+</body>
+</html>
