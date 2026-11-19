@@ -11,11 +11,32 @@
    Focus mode hide class. (Overkill but I take no chances)
    content.js applies this directly to each matched element.
 */
-.ati-hidden {
+.ati-hidden,
+.ati-hidden-video,
+.ati-hidden-visualization,
+.ati-hidden-question,
+.ati-hidden-image,
+.ati-hidden-reference-accordion {
     display: none !important;
     visibility: hidden !important;
     opacity: 0 !important;
     pointer-events: none !important;
+}
+
+/* Passive layout only: a disabled freetext textarea identifies submission.
+   CSS also responds to later submissions, resets, and newly rendered questions. */
+.ati-focus-questions-visible .content-question app-freetext .question-body:has(textarea:disabled) {
+    display: none !important;
+}
+
+.ati-focus-questions-visible .content-question app-freetext:has(.question-body textarea:disabled) .question-header {
+    border-bottom: none !important;
+    padding-bottom: 0 !important;
+}
+
+.ati-focus-questions-visible .content-question app-freetext:has(.question-body textarea:disabled) .question-footer {
+    border-top: none !important;
+    padding-top: 0 !important;
 }
 
 /* A normal-flow heading inside the article, only created in Focus Mode. */
@@ -32,25 +53,52 @@
 }
 
 /* ============================================================
-   Toggle badge — injected by content.js
+   Focus controls — injected by content.js
    ============================================================ */
-#ati-focus-badge {
+#ati-focus-controls {
     position: fixed;
     bottom: 12px;
-    left: 80%;
-    transform: translateX(-50%);
-    right: auto;
+    right: 16px;
+    max-width: calc(100vw - 32px);
     z-index: 2147483647;
-    padding: 5px 10px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+#ati-focus-badge,
+#ati-focus-check,
+#ati-navset > button {
+    box-sizing: border-box;
+    min-height: 40px;
+    padding: 8px 14px;
     border-radius: 4px;
-    font-size: 11px;
+    font-size: 14px;
     font-family: sans-serif;
     font-weight: 600;
-    line-height: 1.2;
+    line-height: 1.4;
     cursor: pointer;
     user-select: none;
     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
-    border: none;
+    border: 1px solid transparent;
+}
+
+#ati-focus-check,
+#ati-navset > button {
+    background-color: #2e8094;
+    color: #fff;
+}
+
+#ati-focus-check:disabled {
+    cursor: default;
+    opacity: .5;
+}
+
+#ati-focus-check:focus-visible,
+#ati-focus-badge:focus-visible,
+#ati-navset > button:focus-visible {
+    outline: 2px solid #2e8094;
+    outline-offset: 2px;
 }
 
 #ati-focus-badge.badge-inactive {
@@ -62,4 +110,77 @@
     background-color: #fff;
     color: #2e8094;
     border: 1px solid #2e8094;
+}
+
+#ati-focus-check-status {
+    position: absolute;
+    right: calc(100% + 8px);
+    bottom: 0;
+    box-sizing: border-box;
+    width: max-content;
+    max-width: min(220px, calc(100vw - 240px));
+    padding: 6px 8px;
+    border: 1px solid #2e8094;
+    border-radius: 4px;
+    background: #fff;
+    color: #2e8094;
+    font: 12px/1.4 sans-serif;
+}
+
+#ati-focus-check-status[hidden] {
+    display: none !important;
+}
+
+/* NavSet owns Top, so the native button never remains visible when it is OFF. */
+.ati-navset-ready .btn-back-to-top,
+.ati-navset-ready #btn-back-to-top,
+#ati-navset[hidden],
+#ati-navset > button[hidden] {
+    display: none !important;
+}
+
+#ati-navset {
+    position: fixed;
+    right: 16px;
+    bottom: 68px;
+    z-index: 2147483646;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+}
+
+#ati-navset > button {
+    position: relative;
+    text-align: center;
+    white-space: nowrap;
+}
+
+#ati-navset .ati-nav-tooltip {
+    position: absolute;
+    right: calc(100% + 8px);
+    top: 50%;
+    transform: translateY(-50%);
+    box-sizing: border-box;
+    width: max-content;
+    max-width: min(280px, calc(100vw - 160px));
+    padding: 6px 10px;
+    border-radius: 4px;
+    background: #222;
+    color: #fff;
+    font: 13px/1.4 sans-serif;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-align: left;
+    pointer-events: none;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity .08s linear, visibility 0s linear;
+}
+
+#ati-navset > button:hover .ati-nav-tooltip,
+#ati-navset > button:focus-visible .ati-nav-tooltip {
+    opacity: 1;
+    visibility: visible;
+    transition-delay: .1s;
 }

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Focus Mode",
-  "version": "1.4",
-  "description": "ATI Focus Mode with targeted media hiding, an article heading and sidebar switching.",
+  "version": "1.10.2",
+  "description": "ATI Focus Mode with media hiding, freetext layouts, article headings, sidebar switching and optional heading navigation.",
   "icons": {
     "16": "icon_16x16.png",
     "32": "icon_32x32.png",
@@ -15,15 +15,35 @@
         "https://lms.atitesting.com/*",
         "https://pages-delivery.atitesting.com/*"
       ],
-      "css": ["styles.css"],
-      "js": ["content.js"],
+      "css": [
+        "styles.css"
+      ],
+      "js": [
+        "navigation.js",
+        "content.js"
+      ],
       "all_frames": true,
-      "run_at": "document_idle"
+      "run_at": "document_end"
     },
     {
-      "matches": ["https://lms.atitesting.com/*"],
-      "js": ["filenames.js"],
+      "matches": [
+        "https://lms.atitesting.com/*"
+      ],
+      "js": [
+        "filenames.js"
+      ],
       "run_at": "document_idle"
     }
-  ]
+  ],
+  "permissions": [
+    "storage"
+  ],
+  "action": {
+    "default_icon": {
+      "16": "icon_16x16.png",
+      "24": "icon_24x24.png",
+      "32": "icon_32x32.png"
+    },
+    "default_popup": "popup.html"
+  }
 }
