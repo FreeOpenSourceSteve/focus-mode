@@ -1,16 +1,17 @@
 (function () {
     'use strict';
 
-    const DEFAULTS = { hideVideos: true, hideVisualizations: true, hidePracticeQuestions: true };
+    const DEFAULTS = { hideVideos: true, hideVisualizations: true, hidePracticeQuestions: true, hideImages: true, navSetEnabled: true };
     var preferences = Object.assign({}, DEFAULTS);
     var buttons = Array.from(document.querySelectorAll('button[data-key]'));
     var initialReadFinished = false;
     var earlyChanges = {};
 
     function render(button) {
-        var hidden = preferences[button.dataset.key];
-        button.querySelector('.state').textContent = hidden ? '[HIDDEN]' : '[VISIBLE]';
-        button.setAttribute('aria-pressed', String(hidden));
+        var enabled = preferences[button.dataset.key];
+        button.querySelector('.state').textContent = button.dataset.key === 'navSetEnabled' ?
+            (enabled ? '[ON]' : '[OFF]') : (enabled ? '[Hidden]' : '[Visible]');
+        button.setAttribute('aria-pressed', String(enabled));
     }
 
     chrome.storage.onChanged.addListener(function (changes, area) {
@@ -30,9 +31,9 @@
             var key = button.dataset.key;
             button.disabled = true;
             try {
-                var hidden = !preferences[key];
-                await chrome.storage.local.set({ [key]: hidden });
-                preferences[key] = hidden;
+                var value = !preferences[key];
+                await chrome.storage.local.set({ [key]: value });
+                preferences[key] = value;
                 render(button);
                 button.removeAttribute('title');
             } catch (error) {

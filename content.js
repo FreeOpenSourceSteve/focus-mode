@@ -5,7 +5,7 @@
  * iframe (pages-delivery.atitesting.com) thanks to all_frames: true
  * in manifest.json.
  *
- * Only the top frame creates the badge and keyboard shortcut.
+ * Only the top frame creates the Check/toggle controls and main shortcut.
  * The iframe receives toggle commands via postMessage so both frames
  * stay in sync from a single control point.
  *
@@ -22,10 +22,14 @@
     const HIDE_CLASS  = 'ati-hidden';
     const STORAGE_KEY = 'ati_focus_mode_active';
     const BADGE_ID    = 'ati-focus-badge';
+    const CHECK_ID    = 'ati-focus-check';
+    const CONTROLS_ID = 'ati-focus-controls';
+    const ATI_ORIGINS = new Set(['https://lms.atitesting.com', 'https://pages-delivery.atitesting.com']);
     const HEADING_ID  = 'ati-focus-course-title';
     const IS_TOP      = window === window.top;
     const BIO_SELECTOR = '.component[data-component-type="biodigital"]';
     const ACCORDION_SELECTOR = '.component[data-component-type="accordion"]';
+    const REFERENCE_HIDE_CLASS = 'ati-hidden-reference-accordion';
 
     // Selectors applied directly to matched elements
     const SELECTORS = [
@@ -38,7 +42,7 @@
         'app-text-to-speech-read-along',
         '.blue-footer',
         '.blue-footer1',
-        '.btn-back-to-top',
+        '.asc-vm-avatar-image',
         '._pendo-badge-image',
         '[data-_pendo-image-1]',
         'button[data-layout="badgeResourceCenter"]',
@@ -48,14 +52,16 @@
     const TARGETS = {
         hideVideos: { selector: '.component[data-component-type="video"]', hideClass: 'ati-hidden-video' },
         hideVisualizations: { selector: BIO_SELECTOR, hideClass: 'ati-hidden-visualization' },
-        hidePracticeQuestions: { selector: '.content-question', hideClass: 'ati-hidden-question' }
+        hidePracticeQuestions: { selector: '.content-question', hideClass: 'ati-hidden-question' },
+        hideImages: { selector: '.content-image', hideClass: 'ati-hidden-image' }
     };
-    const HIDDEN_SELECTOR = '.' + HIDE_CLASS + ', ' + Object.keys(TARGETS).map(function (key) {
+    const HIDDEN_SELECTOR = '.' + HIDE_CLASS + ', .' + REFERENCE_HIDE_CLASS + ', ' + Object.keys(TARGETS).map(function (key) {
         return '.' + TARGETS[key].hideClass;
     }).join(', ');
-    var targetPreferences = { hideVideos: true, hideVisualizations: true, hidePracticeQuestions: true };
+    var targetPreferences = { hideVideos: true, hideVisualizations: true, hidePracticeQuestions: true, hideImages: true };
     var preferencesReady = false;
     var pendingFocusActive = null;
+    var preparedQuestionInputs = new WeakSet();
 
     // Browser-internal storage only: preferences never pass through ATI messages.
     function loadTargetPreferences() {
@@ -72,7 +78,11 @@
                     applyTargetPreference(key, document);
                     if (key === 'hideVisualizations') updateVisualizationAccordions([document]);
                 }
+                if (key === 'hidePracticeQuestions') {
+                    updateQuestionLayout();
+                }
             });
+            document.dispatchEvent(new Event('ati-focus-layout-change'));
         });
         return chrome.storage.local.get(targetPreferences).then(function (saved) {
             Object.keys(TARGETS).forEach(function (key) {
@@ -93,9 +103,32 @@
         });
     }
 
-    var observer = null;
+    function updateQuestionLayout() {
+        document.documentElement.classList.toggle('ati-focus-questions-visible',
+            focusActive && !targetPreferences.hidePracticeQuestions);
+    }
+
+    function prefillFreeTextQuestions(root) {
+        if (!focusActive || targetPreferences.hidePracticeQuestions || !root) return;
+        var selector = '.content-question app-freetext .question-body textarea:not(:disabled)';
+        var inputs = [];
+        if (root.matches && root.matches(selector)) inputs.push(root);
+        if (root.querySelectorAll) inputs.push.apply(inputs, root.querySelectorAll(selector));
+        inputs.forEach(function (input) {
+            if (!input.isConnected || input.readOnly || preparedQuestionInputs.has(input)) return;
+            // Initialize once per editable textarea, respecting existing drafts
+            // and later edits/clears. Notify the form once so its own validation
+            // can update Submit; never force-enable or click that button.
+            preparedQuestionInputs.add(input);
+            if (input.value === '') {
+                input.value = 'SHOW ANSWER';
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+        });
+    }
+
     var focusActive = false;
-    var sidebarObserver = null;
+    var pendingSidebarState = null;
     var duplicateArticleHeading = null;
     var hiddenVisualizationAccordions = new WeakSet();
 
@@ -116,14 +149,67 @@
         });
         Object.keys(TARGETS).forEach(function (key) { applyTargetPreference(key, document); });
         updateVisualizationAccordions([document]);
+        updateReferenceAccordions([document]);
     }
 
     function showAll() {
         document.querySelectorAll(HIDDEN_SELECTOR).forEach(function (el) {
             el.classList.remove(HIDE_CLASS);
+            el.classList.remove(REFERENCE_HIDE_CLASS);
             Object.keys(TARGETS).forEach(function (key) { el.classList.remove(TARGETS[key].hideClass); });
         });
         hiddenVisualizationAccordions = new WeakSet();
+    }
+
+    /* Match header titles, never body text or article-specific generated IDs. */
+    function updateReferenceAccordions(roots) {
+        var candidates = new Set();
+        roots.forEach(function (root) {
+            if (!root) return;
+            var element = root.nodeType === 1 ? root : root.parentElement;
+            // Include outer accordions when a nested component is updated.
+            while (element) {
+                var component = element.closest(ACCORDION_SELECTOR);
+                if (!component) break;
+                candidates.add(component);
+                element = component.parentElement;
+            }
+            if (root.querySelectorAll) root.querySelectorAll(ACCORDION_SELECTOR).forEach(function (component) {
+                candidates.add(component);
+            });
+        });
+        candidates.forEach(function (component) {
+            component.classList.remove(REFERENCE_HIDE_CLASS);
+            component.querySelectorAll('.' + REFERENCE_HIDE_CLASS).forEach(function (element) {
+                // Nested accordion components manage their own hiding.
+                if (element.closest(ACCORDION_SELECTOR) === component) {
+                    element.classList.remove(REFERENCE_HIDE_CLASS);
+                }
+            });
+            if (!focusActive) return;
+            var buttons = Array.from(component.querySelectorAll('.btn.action-bar')).filter(function (button) {
+                return button.closest('.component') === component;
+            });
+            var matched = buttons.map(function (button) {
+                var title = button.querySelector('.title');
+                var text = title ? normalizeTitle(title.textContent) : '';
+                if (text !== 'Legal' && text !== 'Credits') return false;
+                var card = button.closest('.card');
+                var panelId = button.getAttribute('aria-controls');
+                var panel = panelId && component.ownerDocument.getElementById(panelId);
+                if (!card || card.closest('.component') !== component || !panel ||
+                    !panel.matches('.collapse') || !card.contains(panel) ||
+                    panel.closest('.component') !== component ||
+                    button.getAttribute('data-target') !== '#' + panelId) return false;
+                card.classList.add(REFERENCE_HIDE_CLASS);
+                return true;
+            });
+            // Hide the wrapper only if every section is a matching reference section.
+            // Mixed accordions retain their other cards and content.
+            if (matched.length && matched.every(function (value) { return value; })) {
+                component.classList.add(REFERENCE_HIDE_CLASS);
+            }
+        });
     }
 
     /* Hide only BioDigital instructions, never a generic neighboring accordion. */
@@ -267,38 +353,17 @@
         firstComponent.parentNode.insertBefore(heading, firstComponent);
     }
 
-    /* ── Sidebar: one native state change per Focus Mode transition ── */
-    function switchSidebar(open) {
-        if (window.location.hostname !== 'lms.atitesting.com') return;
-        if (sidebarObserver) {
-            sidebarObserver.disconnect();
-            sidebarObserver = null;
-        }
-
-        function applyWhenReady() {
-            var sidebar = document.querySelector('mat-sidenav.lms-sidenav');
-            if (!sidebar) return false;
-            var isOpen = sidebar.classList.contains('mat-drawer-opened');
-            var button = document.querySelector('.blue-header button.menu-button');
-            if (isOpen !== open && (!button || button.disabled)) return false;
-
-            // Stop waiting BEFORE clicking: later user actions must stay free.
-            if (sidebarObserver) {
-                sidebarObserver.disconnect();
-                sidebarObserver = null;
-            }
-            if (isOpen !== open) button.click();
-            return true;
-        }
-
-        if (applyWhenReady()) return;
-        // Angular may not have rendered the controls when a saved ON state
-        // is restored. Wait only until this one requested action is possible.
-        sidebarObserver = new MutationObserver(applyWhenReady);
-        sidebarObserver.observe(document.documentElement, {
-            childList: true, subtree: true, attributes: true,
-            attributeFilter: ['class', 'disabled']
-        });
+    /* One sidebar attempt per transition/check; never wait on DOM changes. */
+    function applyPendingSidebar() {
+        if (pendingSidebarState === null || location.hostname !== 'lms.atitesting.com') return;
+        var sidebar = document.querySelector('mat-sidenav.lms-sidenav');
+        if (!sidebar) return;
+        var isOpen = sidebar.classList.contains('mat-drawer-opened');
+        var button = document.querySelector('.blue-header button.menu-button');
+        if (isOpen !== pendingSidebarState && (!button || button.disabled)) return;
+        var open = pendingSidebarState;
+        pendingSidebarState = null;
+        if (isOpen !== open) button.click();
     }
 
     /* ── Accordion: expand all panels, block click-to-close ────────────
@@ -374,62 +439,27 @@
         });
     }
 
-    /* ── MutationObserver: tag newly-rendered elements immediately ── */
-    function startObserver() {
-        if (observer) return;
-        observer = new MutationObserver(function (mutations) {
-            var visualizationRoots = new Set();
-            mutations.forEach(function (mutation) {
-                // Recheck locally when Angular fills a header/panel or changes
-                // sibling order. Attribute/characterData observation is unnecessary.
-                var component = mutation.target.nodeType === 1 && mutation.target.closest('.component');
-                if (component) visualizationRoots.add(component);
-                [mutation.previousSibling, mutation.nextSibling].forEach(function (sibling) {
-                    // Angular comments/whitespace do not break element adjacency.
-                    if (!sibling) return;
-                    var previous = sibling;
-                    var next = sibling;
-                    while (previous && previous.nodeType !== 1) previous = previous.previousSibling;
-                    while (next && next.nodeType !== 1) next = next.nextSibling;
-                    if (previous) visualizationRoots.add(previous);
-                    if (next) visualizationRoots.add(next);
-                });
-                mutation.addedNodes.forEach(function (node) {
-                    if (node.nodeType !== 1) return;
-                    visualizationRoots.add(node);
-
-                    // Hide targeted UI elements
-                    SELECTORS.forEach(function (sel) {
-                        if (node.matches && node.matches(sel)) {
-                            node.classList.add(HIDE_CLASS);
-                        }
-                        if (node.querySelectorAll) {
-                            node.querySelectorAll(sel).forEach(function (el) {
-                                el.classList.add(HIDE_CLASS);
-                            });
-                        }
-                    });
-
-                    Object.keys(TARGETS).forEach(function (key) { applyTargetPreference(key, node); });
-
-                    // Expand any accordion panels in the new node
-                    if (node.querySelectorAll) {
-                        if (node.querySelector('.collapse')) {
-                            expandAccordions(node);
-                            lockAccordions(node);
-                        }
-                    }
-                });
-            });
-            updateVisualizationAccordions(visualizationRoots);
-        });
-        observer.observe(document.documentElement, { childList: true, subtree: true });
+    /* One bounded pass. No observers, timers or automatic retries. */
+    function runFocusCheck() {
+        if (!preferencesReady || !focusActive) return;
+        updateQuestionLayout();
+        prefillFreeTextQuestions(document);
+        hideAll();
+        expandAccordions();
+        lockAccordions();
+        addCourseHeading();
+        applyPendingSidebar();
+        document.dispatchEvent(new Event('ati-focus-layout-change'));
     }
 
-    function stopObserver() {
-        if (observer) {
-            observer.disconnect();
-            observer = null;
+    function checkPage() {
+        if (!focusActive) return;
+        runFocusCheck();
+        sendFrameCommand('check');
+        var status = document.getElementById('ati-focus-check-status');
+        if (status) {
+            status.textContent = 'Check requested at ' + new Date().toLocaleTimeString();
+            status.hidden = false;
         }
     }
 
@@ -441,24 +471,25 @@
             return;
         }
         var changed = focusActive !== active;
+        // A reader can receive both its initial state reply and a broadcast.
+        // Only actual transitions run a check; explicit Check always runs once.
+        if (!changed) return;
         focusActive = active;
+        if (IS_TOP && changed) pendingSidebarState = !active;
         if (active) {
-            hideAll();
-            expandAccordions();
-            lockAccordions();
-            if (changed) addCourseHeading();
-            startObserver();
+            runFocusCheck();
         } else {
-            stopObserver();
+            updateQuestionLayout();
             showAll();
             unlockAccordions();
             collapseAccordions();
             removeCourseHeading();
+            applyPendingSidebar();
+            document.dispatchEvent(new Event('ati-focus-layout-change'));
         }
         // The LMS owns the navigation; reader-frame state messages never
         // toggle it again. Repeated state replies are also harmless.
         if (IS_TOP && changed) {
-            switchSidebar(!active);
             // Let the independent filename module read the current page once.
             if (active) document.dispatchEvent(new Event('ati-focus-mode-on'));
         }
@@ -475,23 +506,76 @@
 
     /* ── Cross-frame messaging ── */
 
-    // Top frame → broadcast current state to all child frames
+    function readerOrigin(frame) {
+        try {
+            var origin = new URL(frame.src, location.href).origin;
+            return ATI_ORIGINS.has(origin) ? origin : null;
+        } catch (error) { return null; }
+    }
+
+    function sendFrameCommand(action) {
+        document.querySelectorAll('iframe').forEach(function (frame) {
+            var origin = readerOrigin(frame);
+            if (origin && frame.contentWindow) {
+                frame.contentWindow.postMessage({ atiAction: action }, origin);
+            }
+        });
+    }
+
     function broadcastToFrames(active) {
-        var msg = { atiAction: active ? 'focusOn' : 'focusOff' };
-        for (var i = 0; i < window.frames.length; i++) {
-            try { window.frames[i].postMessage(msg, '*'); } catch (e) {}
+        sendFrameCommand(active ? 'focusOn' : 'focusOff');
+    }
+
+    var parentOrigin = null;
+    var pendingParentToggles = 0;
+
+    function resolveParentOrigin() {
+        // The first ancestor is the immediate parent, not necessarily the LMS.
+        var ancestors = location.ancestorOrigins;
+        if (ancestors && ancestors.length && ancestors[0] !== 'null') {
+            return ATI_ORIGINS.has(ancestors[0]) ? ancestors[0] : null;
         }
+        try {
+            var origin = new URL(document.referrer).origin;
+            return ATI_ORIGINS.has(origin) ? origin : null;
+        } catch (error) { return null; }
+    }
+
+    function postToParent(message) {
+        parentOrigin = parentOrigin || resolveParentOrigin();
+        if (parentOrigin) {
+            window.parent.postMessage(message, parentOrigin);
+        } else if (message.atiQuery === 'toggle') {
+            // A validated initial state will establish the route before replay.
+            pendingParentToggles++;
+        }
+    }
+
+    function sendInitialFrameState(frame) {
+        var origin = readerOrigin(frame);
+        if (!origin || !frame.contentWindow) return;
+        frame.contentWindow.postMessage({
+            atiAction: (pendingFocusActive === null ? isActive() : pendingFocusActive) ? 'focusOn' : 'focusOff'
+        }, origin);
     }
 
     // Top frame listens for iframes requesting current state or requesting a toggle
     function listenForFrameQueries() {
+        // One state handshake per frame load also covers hidden referrers.
+        // Capture load events so dynamically inserted readers need no observer.
+        document.addEventListener('load', function (e) {
+            if (e.target.tagName === 'IFRAME') sendInitialFrameState(e.target);
+        }, true);
         window.addEventListener('message', function (e) {
-            if (!e.data) return;
+            if (!e.data || !ATI_ORIGINS.has(e.origin) ||
+                !Array.from(document.querySelectorAll('iframe')).some(function (frame) {
+                    return readerOrigin(frame) === e.origin && frame.contentWindow === e.source;
+                })) return;
             if (e.data.atiQuery === 'getState' && e.source) {
                 try {
                     e.source.postMessage(
                         { atiAction: (pendingFocusActive === null ? isActive() : pendingFocusActive) ? 'focusOn' : 'focusOff' },
-                        '*'
+                        e.origin
                     );
                 } catch (err) {}
             }
@@ -505,23 +589,57 @@
     // Iframe listens for commands from the top frame
     function listenForCommands() {
         window.addEventListener('message', function (e) {
-            if (!e.data) return;
+            if (!e.data || !ATI_ORIGINS.has(e.origin) || e.source !== window.parent) return;
+            if (!['focusOn', 'focusOff', 'check'].includes(e.data.atiAction)) return;
+            parentOrigin = e.origin;
             if (e.data.atiAction === 'focusOn')  applyFocusMode(true);
             if (e.data.atiAction === 'focusOff') applyFocusMode(false);
+            if (e.data.atiAction === 'check') runFocusCheck();
+            if (pendingParentToggles) {
+                if (e.data.atiAction === 'check') {
+                    postToParent({ atiQuery: 'getState' });
+                } else {
+                    var toggles = pendingParentToggles;
+                    pendingParentToggles = 0;
+                    for (var n = 0; n < toggles; n++) postToParent({ atiQuery: 'toggle' });
+                }
+            }
         });
     }
 
     /* ── Badge (top frame only) ── */
     function createBadge() {
         if (document.getElementById(BADGE_ID)) return;
+        var controls = document.createElement('div');
+        controls.id = CONTROLS_ID;
+        var check = document.createElement('button');
+        check.id = CHECK_ID;
+        check.type = 'button';
+        check.textContent = '♥';
+        check.title = 'Run one Focus Mode check';
+        check.setAttribute('aria-label', 'Run one Focus Mode check');
+        check.disabled = true;
         var badge = document.createElement('button');
         badge.id          = BADGE_ID;
         badge.type        = 'button';
         badge.title       = 'Toggle ATI Focus Mode (Option+H)';
         badge.className   = 'badge-inactive';
         badge.textContent = 'Focus OFF  [⌥H]';
-        badge.addEventListener('click', toggleFocusMode);
-        document.body.appendChild(badge);
+        var status = document.createElement('output');
+        status.id = 'ati-focus-check-status';
+        status.hidden = true;
+        status.setAttribute('role', 'status');
+        controls.append(check, badge, status);
+        document.body.appendChild(controls);
+        window.addEventListener('click', function (event) {
+            var button = event.target.closest && event.target.closest('button');
+            if ((button !== check && button !== badge) || button.disabled) return;
+            // Capture only our controls before the page's document handlers.
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            if (button === check) checkPage();
+            else toggleFocusMode();
+        }, true);
     }
 
     function updateBadge(active) {
@@ -529,6 +647,10 @@
         if (!badge) return;
         badge.textContent = active ? 'Focus ON  [⌥H]' : 'Focus OFF  [⌥H]';
         badge.className   = active ? 'badge-active' : 'badge-inactive';
+        var check = document.getElementById(CHECK_ID);
+        if (check) check.disabled = !active;
+        var status = document.getElementById('ati-focus-check-status');
+        if (status) status.hidden = true;
     }
 
     /* ── Keyboard shortcut (top frame) ── */
@@ -536,6 +658,7 @@
         document.addEventListener('keydown', function (e) {
             if (e.altKey && e.code === 'KeyH') {
                 e.preventDefault();
+                if (e.repeat) return;
                 toggleFocusMode();
             }
         });
@@ -546,7 +669,8 @@
         document.addEventListener('keydown', function (e) {
             if (e.altKey && e.code === 'KeyH') {
                 e.preventDefault();
-                window.parent.postMessage({ atiQuery: 'toggle' }, '*');
+                if (e.repeat) return;
+                postToParent({ atiQuery: 'toggle' });
             }
         });
     }
@@ -557,13 +681,18 @@
             createBadge();
             bindShortcut();
             listenForFrameQueries();
+            // Window load covers readers that finished before our load listener.
+            // Wait for load: an unfinished iframe may still have its initial origin.
+            window.addEventListener('load', function () {
+                document.querySelectorAll('iframe').forEach(sendInitialFrameState);
+            }, { once: true });
             console.log('[ATI Focus Mode] Ready. Press Option+H (⌥H) or click the badge.');
         } else {
             // Iframe: listen for toggle commands, bind shortcut to message parent,
             // then ask the top frame for current state
             listenForCommands();
             bindIframeShortcut();
-            window.parent.postMessage({ atiQuery: 'getState' }, '*');
+            postToParent({ atiQuery: 'getState' });
         }
         loadTargetPreferences().then(function () {
             preferencesReady = true;

@@ -10,13 +10,16 @@
         button:hover { background: #eef5f6; }
         button:focus-visible { outline: 2px solid #2e8094; outline-offset: -2px; }
         button:disabled { cursor: wait; opacity: .6; }
-        .state { color: #246879; font-size: 12px; font-weight: 600; }
+        .state { color: #228B22; font-size: 12px; font-weight: 600; }
+        button[aria-pressed="false"] .state { color: #A52A2A; }
     </style>
     <script src="popup.js" defer></script>
 </head>
 <body>
-    <button type="button" data-key="hideVideos" aria-pressed="true" disabled><span>Video</span><span class="state">[HIDDEN]</span></button>
-    <button type="button" data-key="hideVisualizations" aria-pressed="true" disabled><span>3D Visualizations</span><span class="state">[HIDDEN]</span></button>
-    <button type="button" data-key="hidePracticeQuestions" aria-pressed="true" disabled><span>Practice Questions</span><span class="state">[HIDDEN]</span></button>
+    <button type="button" data-key="hideVideos" aria-pressed="true" disabled><span>Video</span><span class="state">[Hidden]</span></button>
+    <button type="button" data-key="hideVisualizations" aria-pressed="true" disabled><span>3D Visualizations</span><span class="state">[Hidden]</span></button>
+    <button type="button" data-key="hidePracticeQuestions" aria-pressed="true" disabled><span>Practice Questions</span><span class="state">[Hidden]</span></button>
+    <button type="button" data-key="hideImages" aria-pressed="true" disabled><span>Images</span><span class="state">[Hidden]</span></button>
+    <button type="button" data-key="navSetEnabled" aria-pressed="true" disabled><span>NavSet</span><span class="state">[ON]</span></button>
 </body>
 </html>
